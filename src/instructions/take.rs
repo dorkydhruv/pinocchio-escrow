@@ -4,20 +4,12 @@ use pinocchio::{
     program_error::ProgramError,
     ProgramResult,
 };
-use pinocchio_token::{ ID as TOKEN_ID, instructions::{ InitializeAccount, TransferChecked } };
+use pinocchio_token::{
+    instructions::{ CloseAccount, InitializeAccount, TransferChecked },
+    ID as TOKEN_ID,
+};
 
-use crate::{ state::Escrow, utils::{ load_acc_unchecked, DataLen } };
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TakeEscrow {
-    pub data: [u8; 32],
-    pub bump: u8,
-}
-
-impl DataLen for TakeEscrow {
-    const LEN: usize = core::mem::size_of::<Self>();
-}
+use crate::{ state::Escrow, utils::load_acc_unchecked};
 
 pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> ProgramResult {
     let [
@@ -63,7 +55,6 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         Seed::from(&signer_bump[..]),
     ];
     let signers = Signer::from(&signer_seeds[..]);
-
     // Initialize maker_mint_b_ata and taker_mint_a_ata (if not initialized)
     if maker_mint_b_ata.data_is_empty() {
         (InitializeAccount {
@@ -71,19 +62,16 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
             mint: mint_b_acc,
             owner: maker_acc,
             rent_sysvar,
-        }).invoke_signed(&[signers])?;
+        }).invoke_signed(&[signers.clone()])?;
     }
-    let signers: Signer<'_, '_> = Signer::from(&signer_seeds[..]);
     if taker_mint_a_ata.data_is_empty() {
         (InitializeAccount {
             account: taker_mint_a_ata,
             mint: mint_a_acc,
             owner: taker_acc,
             rent_sysvar,
-        }).invoke_signed(&[signers])?;
+        }).invoke_signed(&[signers.clone()])?;
     }
-
-    let signers: Signer<'_, '_> = Signer::from(&signer_seeds[..]);
     // Transfer token from vault to taker_mint_a_ata
     (TransferChecked {
         amount: escrow_state.receive_amount,
@@ -92,7 +80,7 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         mint: mint_a_acc,
         to: taker_mint_a_ata,
         decimals: 6,
-    }).invoke_signed(&[signers])?;
+    }).invoke_signed(&[signers.clone()])?;
     // Transfer token from taker_mint_b_ata to maker_mint_b_ata
     (TransferChecked {
         amount: escrow_state.receive_amount,
@@ -101,6 +89,19 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         mint: mint_b_acc,
         to: maker_mint_b_ata,
         decimals: 6,
-    }).invoke()?;
+    }).invoke_signed(&[signers.clone()])?;
+
+    // Close the escrow account
+    // Close escrow vault account
+    (CloseAccount {
+        account: escrow_vault,
+        destination: maker_acc,
+        authority: escrow_acc,
+    }).invoke_signed(&[signers.clone()])?;
+    // Move the lamports
+    unsafe {
+        *maker_acc.borrow_mut_lamports_unchecked() += *escrow_acc.borrow_lamports_unchecked();
+        escrow_acc.close()?;
+    }
     Ok(())
 }

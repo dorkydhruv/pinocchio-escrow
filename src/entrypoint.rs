@@ -27,7 +27,9 @@ fn process_instruction(
         Ok(ProgramInstruction::TakeInstruction) => {
             instructions::take::process_take_instruction(accounts, data)
         }
-        Ok(ProgramInstruction::RefundInstruction) => { todo!() }
+        Ok(ProgramInstruction::RefundInstruction) => {
+            instructions::refund::process_refund_instructions(accounts, data)
+        }
         Err(_) => { Err(ProgramError::InvalidInstructionData) }
     }
 }
