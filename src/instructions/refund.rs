@@ -5,8 +5,7 @@ use pinocchio::{
     ProgramResult,
 };
 use pinocchio_token::{
-    instructions::{ CloseAccount, TransferChecked },
-    ID as TOKEN_ID,
+    instructions::{ CloseAccount, TransferChecked }, state::Mint, ID as TOKEN_ID
 };
 
 use crate::{ state::Escrow, utils::load_acc_unchecked };
@@ -40,6 +39,9 @@ pub fn process_refund_instructions(accounts: &[AccountInfo], _data: &[u8]) -> Pr
         assert_eq!(escrow_acc.owner(), &crate::id());
     }
 
+    let mint_a_state = (unsafe { load_acc_unchecked::<Mint>(mint_a_acc.borrow_data_unchecked()) })?;
+
+
     // Check maker account
     if *maker_acc.key() != escrow_state.maker {
         return Err(ProgramError::IncorrectAuthority);
@@ -58,7 +60,7 @@ pub fn process_refund_instructions(accounts: &[AccountInfo], _data: &[u8]) -> Pr
     (TransferChecked {
         amount: escrow_state.receive_amount,
         authority: escrow_acc,
-        decimals: 6,
+        decimals: mint_a_state.decimals(),
         from: escrow_vault,
         mint: mint_a_acc,
         to: maker_mint_a_ata,

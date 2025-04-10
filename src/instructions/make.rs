@@ -7,9 +7,13 @@ use pinocchio::{
     ProgramResult,
 };
 use pinocchio_system::instructions::CreateAccount;
-use pinocchio_token::{ ID as TOKEN_ID, instructions::{ InitializeAccount, TransferChecked } };
+use pinocchio_token::{
+    ID as TOKEN_ID,
+    instructions::{ InitializeAccount, TransferChecked },
+    state::Mint,
+};
 
-use crate::{ state::Escrow, utils::{ load_ix_data, DataLen } };
+use crate::{ state::Escrow, utils::{ load_acc_unchecked, load_ix_data, DataLen } };
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -20,6 +24,10 @@ pub struct MakeEscrow {
     pub recieve_amount: u64,
     pub data: [u8; 32],
     pub bump: u8,
+}
+
+impl DataLen for Mint {
+    const LEN: usize = core::mem::size_of::<Self>();
 }
 
 impl DataLen for MakeEscrow {
@@ -75,6 +83,8 @@ pub fn process_make_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
         assert_eq!(mint_b_acc.owner(), &TOKEN_ID);
     }
 
+    let mint_a_state = (unsafe { load_acc_unchecked::<Mint>(mint_a_acc.borrow_data_unchecked()) })?;
+
     let signer = Signer::from(&signer_seeds[..]);
 
     // Create the associated token account for the escrow vault
@@ -85,7 +95,7 @@ pub fn process_make_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
             mint: mint_a_acc,
             owner: escrow_acc,
             rent_sysvar,
-        }).invoke_signed(&[signer])?;
+        }).invoke_signed(&[signer.clone()])?;
     }
 
     // Check the owner is escrow_acc
@@ -94,14 +104,14 @@ pub fn process_make_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
     }
 
     // Transfer the tokens from the maker to the escrow vault
-    TransferChecked {
+    (TransferChecked {
         amount: ix_data.recieve_amount,
         authority: maker_acc,
-        decimals: 6, // Should probably derive this too
+        decimals: mint_a_state.decimals(), // Should probably derive this too
         from: maker_mint_a_ata,
         mint: mint_a_acc,
         to: escrow_vault,
-    };
+    }).invoke_signed(&[signer.clone()])?;
 
     Ok(())
 }

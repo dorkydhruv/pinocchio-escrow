@@ -5,11 +5,10 @@ use pinocchio::{
     ProgramResult,
 };
 use pinocchio_token::{
-    instructions::{ CloseAccount, InitializeAccount, TransferChecked },
-    ID as TOKEN_ID,
+    instructions::{ CloseAccount, InitializeAccount, TransferChecked }, state::Mint, ID as TOKEN_ID
 };
 
-use crate::{ state::Escrow, utils::load_acc_unchecked};
+use crate::{ state::Escrow, utils::load_acc_unchecked };
 
 pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> ProgramResult {
     let [
@@ -46,6 +45,10 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         assert_eq!(mint_b_acc.owner(), &TOKEN_ID);
     }
 
+    let mint_a_state = (unsafe { load_acc_unchecked::<Mint>(mint_a_acc.borrow_data_unchecked()) })?;
+    let mint_b_state = (unsafe { load_acc_unchecked::<Mint>(mint_b_acc.borrow_data_unchecked()) })?;
+
+
     let seed_le_bytes = escrow_state.seed.to_le_bytes();
     let signer_bump = [escrow_state.bump];
     let signer_seeds = [
@@ -79,7 +82,7 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         from: escrow_vault,
         mint: mint_a_acc,
         to: taker_mint_a_ata,
-        decimals: 6,
+        decimals: mint_a_state.decimals(),
     }).invoke_signed(&[signers.clone()])?;
     // Transfer token from taker_mint_b_ata to maker_mint_b_ata
     (TransferChecked {
@@ -88,7 +91,7 @@ pub fn process_take_instruction(accounts: &[AccountInfo], _data: &[u8]) -> Progr
         from: taker_mint_b_ata,
         mint: mint_b_acc,
         to: maker_mint_b_ata,
-        decimals: 6,
+        decimals: mint_b_state.decimals(),
     }).invoke_signed(&[signers.clone()])?;
 
     // Close the escrow account
